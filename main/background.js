@@ -104,9 +104,11 @@ window.onload = function () {
 	window.path = require('path')
 	window.url = require('url')
 	window.fs = require('graceful-fs');
+/*
+add package 'filequeue 0.5.0' if you enable this
 	window.FileQueue = require('filequeue');
 	window.fq = new FileQueue(500);
-	
+*/	
 	window.nfpcache = {};
 	  
 	ipcRenderer.on('background-start', (event, data) => {
@@ -118,11 +120,13 @@ window.onload = function () {
 		var ids = data.ids;
 		var sources = data.sources;
 		var children = data.children;
+		var filenames = data.filenames;
 		
 		for(var i=0; i<parts.length; i++){
 			parts[i].rotation = rotations[i];
 			parts[i].id = ids[i];
 			parts[i].source = sources[i];
+			parts[i].filename = filenames[i];
 			if(!data.config.simplify){
 				parts[i].children = children[i];
 			}
@@ -257,6 +261,8 @@ window.onload = function () {
 				c++;
 			}
 			console.log('nfp cached:', c);
+			console.log()
+            ipcRenderer.send('test', [data.sheets, parts, data.config, index]);
 		  	var placement = placeParts(data.sheets, parts, data.config, index);
 	
 			placement.index = data.index;
@@ -822,6 +828,7 @@ function placeParts(sheets, parts, config, nestindex){
 		r.rotation = parts[i].rotation;
 		r.source = parts[i].source;
 		r.id = parts[i].id;
+		r.filename = parts[i].filename;
 		
 		rotated.push(r);
 	}
@@ -857,7 +864,7 @@ function placeParts(sheets, parts, config, nestindex){
 			var sheetNfp = null;				
 			// try all possible rotations until it fits
 			// (only do this for the first part of each sheet, to ensure that all parts that can be placed are, even if we have to to open a lot of sheets)
-			for(j=0; j<(360/config.rotations); j++){
+			for(j=0; j<config.rotations; j++){
 				sheetNfp = getInnerNfp(sheet, part, config);
 				
 				if(sheetNfp){
@@ -868,6 +875,7 @@ function placeParts(sheets, parts, config, nestindex){
 				r.rotation = part.rotation + (360/config.rotations);
 				r.source = part.source;
 				r.id = part.id;
+				r.filename = part.filename
 				
 				// rotation is not in-place
 				part = r;
@@ -894,7 +902,8 @@ function placeParts(sheets, parts, config, nestindex){
 								y: sheetNfp[j][k].y-part[0].y,
 								id: part.id,
 								rotation: part.rotation,
-								source: part.source
+								source: part.source,
+								filename: part.filename
 							}
 						}
 					}
@@ -1031,7 +1040,8 @@ function placeParts(sheets, parts, config, nestindex){
 						y: nf[k].y-part[0].y,
 						id: part.id,
 						source: part.source,
-						rotation: part.rotation
+						rotation: part.rotation,
+						filename: part.filename
 					};
 					
 					
@@ -1168,6 +1178,8 @@ function placeParts(sheets, parts, config, nestindex){
 	}
 	// send finish progerss signal
 	ipcRenderer.send('background-progress', {index: nestindex, progress: -1});
+
+	console.log('WATCH', allplacements);
 	
 	return {placements: allplacements, fitness: fitness, area: sheetarea, mergedLength: totalMerged };
 }

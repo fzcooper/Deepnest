@@ -798,8 +798,10 @@
 		}
 		
 		if(p.tagName == 'polyline'){
+			// a 2-points polyline cannot be closed.
+			// return false to ensures that the polyline is further processed
 			if(p.points.length < 3){
-				return true;
+				return false;
 			}
 			var first = {
 				x: p.points[0].x,
@@ -1203,6 +1205,11 @@
 					polygon.points.appendItem(p2);
 					polygon.points.appendItem(p3);
 					polygon.points.appendItem(p4);
+					
+					// OnShape exports a rectangle at position 0/0, drop it
+					if (p1.x === 0 && p1.y === 0) {
+						polygon.points.clear();
+					}
 					
 					var transformProperty = element.getAttribute('transform');
 					if(transformProperty){

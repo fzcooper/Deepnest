@@ -24,11 +24,11 @@
 			rotations: 4,
 			populationSize: 10,
 			mutationRate: 10,
-			threads: 4,
+			threads: 16,
 			placementType: 'gravity',
 			mergeLines: true,
 			timeRatio: 0.5,
-			scale: 72,
+			scale: 96,
 			simplify: false
 		};
 		
@@ -69,10 +69,12 @@
 				});
 			}
 			
-			var parts = this.getParts(svg.children);
+			var parts = this.getParts(svg.children, filename);
 			for(var i=0; i<parts.length; i++){
 				this.parts.push(parts[i]);
 			}
+
+			return parts;
 			
 			// test simplification
 			/*for(i=0; i<parts.length; i++){
@@ -502,8 +504,8 @@
 			}
 			
 			if(c.threads && parseInt(c.threads) > 0){
-				// max 8 threads
-				config.threads = Math.min(parseInt(c.threads), 8);
+				// max 64 threads
+				config.threads = Math.min(parseInt(c.threads), 256);
 			}
 			
 			if(c.placementType){
@@ -639,8 +641,8 @@
 		
 		// assuming no intersections, return a tree where odd leaves are parts and even ones are holes
 		// might be easier to use the DOM, but paths can't have paths as children. So we'll just make our own tree.
-		this.getParts = function(paths){
-			
+		this.getParts = function(paths, filename){
+
 			var i, j;
 			var polygons = [];
 			
@@ -768,6 +770,9 @@
 				part.bounds = bounds;
 				part.area = bounds.width*bounds.height;
 				part.quantity = 1;
+				part.filename = filename;
+				
+			  if (part.filename === 'BACKGROUND.svg') { part.sheet = true }
 				
 				// load root element
 				part.svgelements.push(svgelements[part.polygontree.source]);
@@ -955,7 +960,8 @@
 				parts.push({
 					quantity: this.parts[i].quantity,
 					sheet: this.parts[i].sheet,
-					polygontree: this.cloneTree(this.parts[i].polygontree)
+					polygontree: this.cloneTree(this.parts[i].polygontree),
+					filename: this.parts[i].filename
 				});
 			}
 			
@@ -1016,6 +1022,7 @@
 		}
 		
 		ipcRenderer.on('background-response', (event, payload) => {
+		    ipcRenderer.send("setPlacements", payload);
 			console.log('ipc response',payload);
 			if(!GA){
 				// user might have quit while we're away
@@ -1071,6 +1078,7 @@
 							var poly = this.cloneTree(parts[i].polygontree); // deep copy
 							poly.id = id; // id is the unique id of all parts that will be nested, including cloned duplicates
 							poly.source = i; // source is the id of each unique part from the main part list
+              poly.filename = parts[i].filename;
 							
 							adam.push(poly);
 							id++;
@@ -1112,6 +1120,7 @@
 			var sheetsources = [];
 			var sheetchildren = [];
 			var sid = 0;
+
 			for(i=0; i<parts.length; i++){
 				if(parts[i].sheet){
 					var poly = parts[i].polygontree;
@@ -1136,17 +1145,20 @@
 					var ids = [];
 					var sources = [];
 					var children = [];
+          var filenames = [];
 					
 					for(j=0; j<GA.population[i].placement.length; j++){
 						var id = GA.population[i].placement[j].id;
 						var source = GA.population[i].placement[j].source;
 						var child = GA.population[i].placement[j].children;
-						ids[j] = id;
+            var filename = GA.population[i].placement[j].filename;
+            ids[j] = id;
 						sources[j] = source;
 						children[j] = child;
+            filenames[j] = filename;
 					}
 					
-					ipcRenderer.send('background-start', {index: i, sheets: sheets, sheetids: sheetids, sheetsources: sheetsources, sheetchildren: sheetchildren, individual: GA.population[i], config: config, ids: ids, sources: sources, children: children});
+					ipcRenderer.send('background-start', {index: i, sheets: sheets, sheetids: sheetids, sheetsources: sheetsources, sheetchildren: sheetchildren, individual: GA.population[i], config: config, ids: ids, sources: sources, children: children, filenames: filenames});
 					running++;					
 				}
 			}

@@ -11,6 +11,7 @@ app.commandLine.appendSwitch('--enable-precise-memory-info');
 const BrowserWindow = electron.BrowserWindow
 
 const path = require('path')
+const os = require('os')
 const url = require('url')
 /*
 // main menu for mac
@@ -60,16 +61,23 @@ let mainWindow = null;
 var backgroundWindows = [];
 
 // single instance
-const shouldQuit = app.makeSingleInstance((commandLine, workingDirectory) => {
-  // Someone tried to run a second instance, we should focus our window.
-  if (mainWindow) {
-    if (mainWindow.isMinimized()) mainWindow.restore()
-    mainWindow.focus()
-  }
-})
+const gotTheLock = app.requestSingleInstanceLock()
 
-if (shouldQuit) {
+if (!gotTheLock) {
   app.quit()
+} else {
+  app.on('second-instance', (event, commandLine, workingDirectory) => {
+    // Someone tried to run a second instance, we should focus our window.
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.focus()
+    }
+  })
+
+  // Create myWindow, load the rest of the app, etc...
+  app.whenReady().then(() => {
+    //myWindow = createWindow()
+  })  
 }
 
 function createMainWindow() {
@@ -80,7 +88,17 @@ function createMainWindow() {
   var frameless = process.platform == 'darwin';
   //var frameless = true;
   
-  mainWindow = new BrowserWindow({width: Math.ceil(width*0.9), height: Math.ceil(height*0.9), frame: !frameless, show: false})
+  mainWindow = new BrowserWindow({
+    width: Math.ceil(width*0.9), 
+    height: Math.ceil(height*0.9), 
+    frame: !frameless, 
+    show: false,
+    webPreferences: {
+      contextIsolation: false,
+      enableRemoteModule: true,      
+      nodeIntegration: true
+    }
+  })
 
   // and load the index.html of the app.
   mainWindow.loadURL(url.format({
@@ -92,7 +110,8 @@ function createMainWindow() {
   mainWindow.setMenu(null);
 
   // Open the DevTools.
-  //mainWindow.webContents.openDevTools()
+  if (process.env["deepnest_debug"] === '1') 
+    mainWindow.webContents.openDevTools()
 
   // Emitted when the window is closed.
   mainWindow.on('closed', function () {
@@ -101,6 +120,15 @@ function createMainWindow() {
     // when you should delete the corresponding element.
     mainWindow = null
   }) 
+
+  if (process.env.SAVE_PLACEMENTS_PATH !== undefined) {
+    global.NEST_DIRECTORY = process.env.SAVE_PLACEMENTS_PATH;
+  } else {
+    global.NEST_DIRECTORY = path.join(os.tmpdir(), "nest");
+  }
+  // make sure the export directory exists
+  if (!fs.existsSync(global.NEST_DIRECTORY))
+    fs.mkdirSync(global.NEST_DIRECTORY);
 }
 
 let winCount = 0;
@@ -110,10 +138,16 @@ function createBackgroundWindows() {
 	// used to have 8, now just 1 background window
 	if(winCount < 1){
 		var back = new BrowserWindow({
-			show: false
+      show: false,
+      webPreferences: {
+        contextIsolation: false,
+        enableRemoteModule: true,
+        nodeIntegration: true
+      }
 		});
 		
-		//back.webContents.openDevTools();
+    if (process.env["deepnest_debug"] === '1') 
+		  back.webContents.openDevTools();
 		
 		back.loadURL(url.format({
 			pathname: path.join(__dirname, './main/background.html'),
@@ -135,6 +169,8 @@ function createBackgroundWindows() {
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 app.on('ready', () => {
+  // https://www.electronjs.org/docs/latest/breaking-changes#planned-breaking-api-changes-90
+  app.allowRendererProcessReuse = false;
 	createMainWindow();
 	mainWindow.once('ready-to-show', () => {
 	  mainWindow.show();
@@ -154,7 +190,7 @@ app.on('activate', function () {
   // On OS X it's common to re-create a window in the app when the
   // dock icon is clicked and there are no other windows open.
   if (mainWindow === null) {
-    createWindow()
+    createMainWindow()
   }
 })
 
@@ -184,16 +220,26 @@ ipcMain.on('background-start', function(event, payload){
 
 ipcMain.on('background-response', function(event, payload){
 	for(var i=0; i<backgroundWindows.length; i++){
-		if(backgroundWindows[i].webContents == event.sender){
-			mainWindow.webContents.send('background-response', payload);
-			backgroundWindows[i].isBusy = false;
-			break;
-		}
+    // todo: hack to fix errors on app closing - should instead close workers when window is closed
+    try {
+		  if(backgroundWindows[i].webContents == event.sender){
+		  	mainWindow.webContents.send('background-response', payload);
+		   	backgroundWindows[i].isBusy = false;
+		  	break;
+		  }
+    } catch (ex) {
+      // ignore errors, as they can reference destroyed objects during a window close event
+    }
 	}
 });
 
 ipcMain.on('background-progress', function(event, payload){
-	mainWindow.webContents.send('background-progress', payload);
+    // todo: hack to fix errors on app closing - should instead close workers when window is closed
+    try {
+	  mainWindow.webContents.send('background-progress', payload);
+  } catch (ex) {
+    // when shutting down while processes are running, this error can occur so ignore it for now.
+  }
 });
 
 ipcMain.on('background-stop', function(event){
@@ -217,3 +263,11 @@ ipcMain.on('login-success', function(event, payload){
 ipcMain.on('purchase-success', function(event){
 	mainWindow.webContents.send('purchase-success');
 });
+
+ipcMain.on("setPlacements", (event, payload) => {
+  global.exportedPlacements = payload;
+} );
+
+ipcMain.on("test", (event, payload) => {
+  global.test = payload;
+} );
